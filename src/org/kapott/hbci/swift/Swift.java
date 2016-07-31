@@ -47,7 +47,7 @@ public class Swift
     public static String getTagValue(String st,String tag,int counter)
     {
         String  ret=null;
-        Pattern patternNLTag=Pattern.compile("\\r\\n(-)?:\\d{2}[A-Z]?:"); // Zu dem "(-)?" siehe TestBrokenMT940.java
+        Pattern patternNLTag=Pattern.compile("\\r\\n(-|-\\r\\n)?:\\d{2}[A-Z]?:"); // Zu dem "(-)?" siehe TestBrokenMT940.java
         
         int endpos=0;
         while (true) {
@@ -61,15 +61,18 @@ public class Swift
                 
                 // tag found - find start of next tag
                 Matcher matcher=patternNLTag.matcher(st);
-                if (matcher.find(startpos)) {
+                if (matcher.find(startpos))
+                {
                     endpos=matcher.start();
-                } else {
-                    /* no next tag found - use end of stream without the
-                     * trailing \r\n- */
-                    endpos=st.length()-3;
+                    ret=st.substring(startpos, endpos);
+                }
+                else
+                {
+                    ret = st.substring(startpos);
+                    
+                    // Kein weiteres Tag gefunden. Alle "\n", "\r" und "-" am Ende abschneiden
+                    ret = ret.replaceAll("[\\r\\n-]{0,10}","");
                 } 
-                
-                ret=st.substring(startpos, endpos);
             }
 
             if ((counter--)==0 || startpos==-1) {

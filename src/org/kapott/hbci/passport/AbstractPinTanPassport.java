@@ -200,8 +200,8 @@ public abstract class AbstractPinTanPassport
         for (int i=0; i<l; i++) {
             HBCIRetVal ret=rets[i];
             if (ret.code.equals("3072")) {
-                String newCustomerId = null;
-                String newUserId = null;
+                String newCustomerId = "";
+                String newUserId = "";
                 int l2=ret.params.length;
                 if(l2>0) {
                     newUserId = ret.params[0];
@@ -260,7 +260,7 @@ public abstract class AbstractPinTanPassport
                 // einen dialog-restart fordern, weil während eines dialoges
                 // das secmech nicht gewechselt werden darf
                 restart_needed=true;
-                HBCIUtils.log("autosecfunc: after this dialog-init we had to change selected pintan method, so a restart of this dialog is needed", HBCIUtils.LOG_INFO);
+                HBCIUtils.log("autosecfunc: after this dialog-init we had to change selected pintan method from "+oldTANMethod+" to "+updatedTANMethod+", so a restart of this dialog is needed", HBCIUtils.LOG_INFO);
             }
         }
         
@@ -941,25 +941,22 @@ public abstract class AbstractPinTanPassport
         
         Properties bpd=getBPD();
         if (bpd!=null) {
-            for (Enumeration e=bpd.propertyNames();e.hasMoreElements();) {
+            for (Enumeration<?> e=bpd.propertyNames();e.hasMoreElements();) {
                 String key=(String)e.nextElement();
-                
-                // TODO: willuhn 2011-05-13: Das nimmt einfach das Hash-Verfahren
-                // aus dem ersten gefundenen Element. HITANS kann inzwischen
-                // aber mehrfach auftreten. muss es von genau dem aktuell gewaehlten
-                // genommen werden.
-                // Hier muesste man vermutlich stattdessen folgendes machen
 
-                // Properties props = getCurrentSecMechInfo();
-                // String version = props.getProperty("segversion");
-                // Und dann nicht subkey.startsWith("TAN2StepPar") sondern
-                // subkey.startsWith("TAN2StepPar" + version)
-                // Muesste man aber noch testen
+                Properties props = getCurrentSecMechInfo();
+                String segVersion = "";
+                try {
+                    int value = Integer.parseInt(props.getProperty("segversion"));
+                    segVersion += value;
+                } catch (NumberFormatException nfe) {
+                    //Not an integer, hence ignored
+                }
                 
                 // p.getProperty("Params_x.TAN2StepParY.ParTAN2StepZ.can1step")
                 if (key.startsWith("Params")) {
                     String subkey=key.substring(key.indexOf('.')+1);
-                    if (subkey.startsWith("TAN2StepPar") && 
+                    if (subkey.startsWith("TAN2StepPar" + segVersion) && 
                             subkey.endsWith(".orderhashmode")) 
                     {
                         ret=bpd.getProperty(key);
@@ -1014,6 +1011,7 @@ public abstract class AbstractPinTanPassport
                             additional_msg_tasks=new ArrayList<HBCIJobImpl>();
 
                             GVTAN2Step hktan = (GVTAN2Step) handler.newJob("TAN2Step");
+                            hktan.setExternalId(task.getExternalId()); // externe ID durchreichen
                             
                             // muessen wir explizit setzen, damit wir das HKTAN in der gleichen Version
                             // schicken, in der das HITANS kam.
@@ -1120,6 +1118,7 @@ public abstract class AbstractPinTanPassport
                             
                             // dazu noch einen hktan-job hinzufügen
                             GVTAN2Step hktan1 = (GVTAN2Step) handler.newJob("TAN2Step");
+                            hktan1.setExternalId(task.getExternalId()); // externe ID durchreichen
 
                             // muessen wir explizit setzen, damit wir das HKTAN in der gleichen Version
                             // schicken, in der das HITANS kam.
@@ -1143,6 +1142,7 @@ public abstract class AbstractPinTanPassport
                             
                             // HKTAN-job für das einreichen der TAN erzeugen
                             GVTAN2Step hktan2 = (GVTAN2Step) handler.newJob("TAN2Step");
+                            hktan2.setExternalId(task.getExternalId()); // externe ID durchreichen
 
                             // muessen wir explizit setzen, damit wir das HKTAN in der gleichen Version
                             // schicken, in der das HITANS kam.

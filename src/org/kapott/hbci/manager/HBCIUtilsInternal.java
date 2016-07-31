@@ -27,6 +27,8 @@ import java.text.DecimalFormatSymbols;
 import java.text.MessageFormat;
 import java.util.Hashtable;
 import java.util.Locale;
+import java.util.Map;
+import java.util.MissingResourceException;
 import java.util.Properties;
 import java.util.ResourceBundle;
 
@@ -38,6 +40,7 @@ public class HBCIUtilsInternal
 {
 
     public static Properties blzs;
+    public static Map<String,BankInfo> banks = null;
     public static Hashtable<ThreadGroup, HBCICallback>  callbacks;  // threadgroup->callbackObject
     public static Hashtable<ThreadGroup, ResourceBundle>  locMsgs;    // threadgroup->resourceBundle
     public static Hashtable<ThreadGroup, Locale>  locales;    // threadgroup->Locale
@@ -54,11 +57,24 @@ public class HBCIUtilsInternal
         return format.format(value);
     }
 
+    /**
+     * Liefert die Zeile aus der blz.properties mit der angegebenen BLZ.
+     * @param blz die BLZ.
+     * @return die Zeile aus der blz.properties
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
+     */
     public static String getBLZData(String blz)
     {
         return blz!=null?blzs.getProperty(blz,"|||||"):"|||||";
     }
 
+    /**
+     * Liefert den n-ten Datensatz (beginnend bei 1) aus der Zeile.
+     * @param st die Zeile.
+     * @param idx der Index, beginnend bei 1.
+     * @return der Wert oder Leerstring.
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
+     */
     public static String getNthToken(String st,int idx)
     {
         String[] parts=st.split("\\|");
@@ -73,10 +89,17 @@ public class HBCIUtilsInternal
         return ret;
     }
     
+    /**
+     * Liefert das Pruefziffern-Verfahren fuer diese Bank.
+     * @param blz die BLZ.
+     * @return das Pruefziffern-Verfahren fuer diese Bank.
+     */
     public static String getAlgForBLZ(String blz)
     {
-        String data=getBLZData(blz);
-        return getNthToken(data,4);
+        BankInfo info = banks.get(blz);
+        if (info == null)
+            return "";
+        return info.getChecksumMethod() != null ? info.getChecksumMethod() : "";
     }
 
     public static HBCICallback getCallback()
@@ -88,7 +111,16 @@ public class HBCIUtilsInternal
     public static String getLocMsg(String key)
     {
         ThreadGroup group=Thread.currentThread().getThreadGroup();
-        return locMsgs.get(group).getString(key);
+        try
+        {
+            return locMsgs.get(group).getString(key);
+        }
+        catch (MissingResourceException re)
+        {
+            // tolerieren wir
+            HBCIUtils.log(re,HBCIUtils.LOG_ERR);
+            return key;
+        }
     }
 
     public static String getLocMsg(String key,Object o)

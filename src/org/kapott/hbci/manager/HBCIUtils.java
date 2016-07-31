@@ -34,9 +34,15 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.ResourceBundle;
 
@@ -509,6 +515,7 @@ public final class HBCIUtils
         configs=new Hashtable<ThreadGroup, Properties>();
         HBCIUtilsInternal.callbacks=new Hashtable<ThreadGroup, HBCICallback>();
         HBCIUtilsInternal.blzs=new Properties();
+        HBCIUtilsInternal.banks=new HashMap<String,BankInfo>();
         HBCIUtilsInternal.locMsgs=new Hashtable<ThreadGroup, ResourceBundle>();
         HBCIUtilsInternal.locales=new Hashtable<ThreadGroup, Locale>();
     }
@@ -902,18 +909,109 @@ public final class HBCIUtils
                 so wird ein leerer String zurückgegeben */
     public static String getNameForBLZ(String blz)
     {
-        String result=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(result,1);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getName() != null ? info.getName() : "";
     }
     
-    /** Gibt zu einer gegebenen Bankleitzahl den BIC-Code zurück.
-        @param blz Bankleitzahl der Bank
-        @return BIC-Code dieser Bank. Falls kein BIC-Code bekannt ist, wird ein
-        leerer String zurückgegeben. */
+    /**
+     * Liefert die Bank-Informationen zur angegebenen BLZ.
+     * @param blz die BLZ.
+     * @return die Bank-Informationen oder NULL, wenn zu der BLZ keine Informationen bekannt sind.
+     */
+    public static BankInfo getBankInfo(String blz)
+    {
+        return HBCIUtilsInternal.banks.get(blz);
+    }
+    
+    /**
+     * Liefert eine Liste von Bank-Informationen, die zum angegebenen Suchbegriff passen.
+     * @param query der Suchbegriff.
+     * Der Suchbegriff muss mindestens 3 Zeichen enthalten und ist nicht case-sensitive.
+     * Der Suchbegriff kann im Ort der Bank oder in deren Namen enthalten sein.
+     * Oder die BLZ oder BIC beginnt mit diesem Text.
+     * @return die Liste der Bank-Informationen.
+     * Die Ergebnis-Liste ist nach BLZ sortiert.
+     * Die Funktion liefert niemals NULL sondern hoechstens eine leere Liste.
+     */
+    public static List<BankInfo> searchBankInfo(String query)
+    {
+        if (query != null)
+            query = query.trim();
+        
+        List<BankInfo> list = new LinkedList<BankInfo>();
+        if (query == null || query.length() < 3)
+            return list;
+        
+        query = query.toLowerCase();
+        
+        for (BankInfo info:HBCIUtilsInternal.banks.values())
+        {
+            String blz  = info.getBlz();
+            String bic  = info.getBic();
+            String name = info.getName();
+            String loc  = info.getLocation();
+            
+            // Anhand der BLZ?
+            if (blz != null && blz.startsWith(query))
+            {
+                list.add(info);
+                continue;
+            }
+            
+            // Anhand der BIC?
+            if (bic != null && bic.toLowerCase().startsWith(query))
+            {
+                list.add(info);
+                continue;
+            }
+            
+            // Anhand des Namens?
+            if (name != null && name.toLowerCase().contains(query))
+            {
+                list.add(info);
+                continue;
+            }
+            // Anhand des Orts?
+            if (loc != null && loc.toLowerCase().contains(query))
+            {
+                list.add(info);
+                continue;
+            }
+        }
+        
+        Collections.sort(list,new Comparator<BankInfo>() {
+            /**
+             * @see java.util.Comparator#compare(java.lang.Object, java.lang.Object)
+             */
+            @Override
+            public int compare(BankInfo o1, BankInfo o2) {
+                if (o1 == null || o1.getBlz() == null)
+                    return -1;
+                if (o2 == null || o2.getBlz() == null)
+                    return 1;
+                
+                return o1.getBlz().compareTo(o2.getBlz());
+            }
+        });
+        
+        return list;
+    }
+    
+    /**
+     * Gibt zu einer gegebenen Bankleitzahl den BIC-Code zurück.
+     * @param blz Bankleitzahl der Bank
+     * @return BIC-Code dieser Bank. Falls kein BIC-Code bekannt ist, wird ein
+     * leerer String zurückgegeben.
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
+     */
     public static String getBICForBLZ(String blz)
     {
-        String data=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(data,3);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getBic() != null ? info.getBic() : "";
     }
     
     /**
@@ -970,11 +1068,14 @@ public final class HBCIUtils
      * @param blz Bankleitzahl der Bank
      * @return HBCI-Host (DNS-Name oder IP-Adresse). Falls kein Host bekannt
      *         ist, wird ein leerer String zurückgegeben.
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
      */
     public static String getHBCIHostForBLZ(String blz)
     {
-        String data=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(data,5);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getRdhAddress() != null ? info.getRdhAddress() : "";
     }
 
     /**
@@ -983,11 +1084,14 @@ public final class HBCIUtils
      * @param blz Bankleitzahl der Bank
      * @return PIN/TAN-URL. Falls keine URL bekannt
      *         ist, wird ein leerer String zurückgegeben.
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
      */
     public static String getPinTanURLForBLZ(String blz)
     {
-        String data=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(data,6);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getPinTanAddress() != null ? info.getPinTanAddress() : "";
     }
     
     /**
@@ -995,11 +1099,14 @@ public final class HBCIUtils
      * bzw. RDH zu verwenden ist. Siehe auch {@link #getPinTanVersionForBLZ(String)}. 
      * @param blz
      * @return HBCI-Version
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
      */
     public static String getHBCIVersionForBLZ(String blz)
     {
-        String data=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(data,7);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getRdhVersion() != null ? info.getRdhVersion().getId() : "";
     }
 
     /**
@@ -1007,11 +1114,14 @@ public final class HBCIUtils
      * bzw. RDH zu verwenden ist. Siehe auch {@link #getHBCIVersionForBLZ(String)} 
      * @param blz
      * @return HBCI-Version
+     * @deprecated Bitte {@link HBCIUtils#getBankInfo(String)} verwenden.
      */
     public static String getPinTanVersionForBLZ(String blz)
     {
-        String data=HBCIUtilsInternal.getBLZData(blz);
-        return HBCIUtilsInternal.getNthToken(data,8);
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return "";
+        return info.getPinTanVersion() != null ? info.getPinTanVersion().getId() : "";
     }
 
     /** Setzt den Wert eines HBCI-Parameters. Eine Beschreibung aller vom Kernel ausgewerteten Parameter
@@ -1543,19 +1653,16 @@ public final class HBCIUtils
      * <em>HBCI4Java</em> validiert werden können, sonst <code>false</code> */
     public static boolean canCheckAccountCRC(String blz)
     {
-        boolean ret=false;
+        BankInfo info = getBankInfo(blz);
+        if (info == null)
+            return false;
+
+        String alg = info.getChecksumMethod();
+        if (alg == null || alg.length() != 2)
+            return false;
         
-        String info=HBCIUtilsInternal.getBLZData(blz);
-        String alg=HBCIUtilsInternal.getNthToken(info,4);
-        
-        if (alg.length()==2) {
-            Method method=getAccountCRCMethodByAlg(alg);
-            if (method!=null) {
-                ret=true;
-            }
-        }
-        
-        return ret;
+        Method method = getAccountCRCMethodByAlg(alg);
+        return method != null;
     }
     
     /** <p>Überprüft, ob gegebene BLZ und Kontonummer zueinander passen.
@@ -1574,19 +1681,17 @@ public final class HBCIUtils
         zum Überprüfen verwendet wurde und die Prüfung einen Fehler ergab */ 
     public static boolean checkAccountCRC(String blz, String number)
     {
-        boolean ret=true;
-        
-        String info=HBCIUtilsInternal.getBLZData(blz);
-        String alg=HBCIUtilsInternal.getNthToken(info,4);
+        BankInfo info = getBankInfo(blz);
+        String alg = info != null ? info.getChecksumMethod() : null;
 
-        if (alg.length()==2) {
-            HBCIUtils.log("crc-checking "+blz+"/"+number, HBCIUtils.LOG_DEBUG);
-            ret=checkAccountCRCByAlg(alg,blz,number);
-        } else {
+        // Im Zweifel lassen wir die Bankverbindung lieber durch
+        if (alg == null || alg.length() != 2) {
             HBCIUtils.log("no crc information about "+blz+" in database", HBCIUtils.LOG_WARN);
+            return true;
         }
-        
-        return ret;
+
+        HBCIUtils.log("crc-checking "+blz+"/"+number, HBCIUtils.LOG_DEBUG);
+        return checkAccountCRCByAlg(alg,blz,number);
     }
     
     /** Used to convert a blz or an account number to an array of ints, one
@@ -1703,14 +1808,25 @@ public final class HBCIUtils
      * der Bankenliste ist am Beispiel der bereits mitgelieferten Datei
      * <code>blz.properties</code> ersichtlich.
      * @param in Eingabe-Stream, der für das Laden der Bankleitzahlen-Daten verwendet
-     *           werden soll */
-    public static void refreshBLZList(InputStream in)
+     *           werden soll 
+     * @throws IOException
+     **/
+    public static synchronized void refreshBLZList(InputStream in)
         throws IOException
     {
         HBCIUtils.log("trying to load BLZ data",HBCIUtils.LOG_DEBUG);
-        synchronized (HBCIUtilsInternal.blzs) {
-            HBCIUtilsInternal.blzs.clear();
-            HBCIUtilsInternal.blzs.load(in);
+        HBCIUtilsInternal.blzs.clear();
+        HBCIUtilsInternal.blzs.load(in);
+        
+        HBCIUtilsInternal.banks.clear();
+        for (Entry<Object,Object> e:HBCIUtilsInternal.blzs.entrySet())
+        {
+            String blz   = (String) e.getKey();
+            String value = (String) e.getValue();
+            
+            BankInfo info = BankInfo.parse(value);
+            info.setBlz(blz);
+            HBCIUtilsInternal.banks.put(blz,info);
         }
     }
 

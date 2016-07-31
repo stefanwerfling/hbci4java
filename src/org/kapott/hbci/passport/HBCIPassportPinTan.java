@@ -43,6 +43,8 @@ import org.kapott.hbci.exceptions.InvalidPassphraseException;
 import org.kapott.hbci.manager.FlickerCode;
 import org.kapott.hbci.manager.HBCIUtils;
 import org.kapott.hbci.manager.HBCIUtilsInternal;
+import org.kapott.hbci.manager.HHDVersion;
+import org.kapott.hbci.manager.HHDVersion.Type;
 import org.kapott.hbci.manager.LogFilter;
 import org.kapott.hbci.security.Sig;
 
@@ -90,11 +92,6 @@ public class HBCIPassportPinTan
         String  fname=HBCIUtils.getParam(header+"filename");
         boolean init=HBCIUtils.getParam(header+"init","1").equals("1");
         
-        if (fname==null) {
-            throw new NullPointerException("client.passport.PinTan.filename must not be null");
-        }
-        
-        HBCIUtils.log("loading passport data from file "+fname,HBCIUtils.LOG_DEBUG);
         setFileName(fname);
         setCertFile(HBCIUtils.getParam(header+"certfile"));
         setCheckCert(HBCIUtils.getParam(header+"checkcert","1").equals("1"));
@@ -104,102 +101,149 @@ public class HBCIPassportPinTan
         setProxyPass(HBCIUtils.getParam(header+"proxypass",""));
 
         if (init) {
-            HBCIUtils.log("loading data from file "+fname,HBCIUtils.LOG_DEBUG);
-            
-            if (!new File(fname).canRead()) {
-                HBCIUtils.log("have to create new passport file",HBCIUtils.LOG_WARN);
-                askForMissingData(true,true,true,true,true,true,true);
-                saveChanges();
-            }
+            this.read();
 
-            ObjectInputStream o=null;
-            try {
-                int retries=Integer.parseInt(HBCIUtils.getParam("client.retries.passphrase","3"));
-                
-                while (true) {
-                    if (passportKey==null)
-                        passportKey=calculatePassportKey(FOR_LOAD);
-
-                    PBEParameterSpec paramspec=new PBEParameterSpec(CIPHER_SALT,CIPHER_ITERATIONS);
-                    Cipher cipher=Cipher.getInstance("PBEWithMD5AndDES");
-                    cipher.init(Cipher.DECRYPT_MODE,passportKey,paramspec);
-                    
-                    o=null;
-                    try {
-                        o=new ObjectInputStream(new CipherInputStream(new FileInputStream(fname),cipher));
-                    } catch (StreamCorruptedException e) {
-                        passportKey=null;
-                        
-                        retries--;
-                        if (retries<=0)
-                            throw new InvalidPassphraseException();
-                    }
-                    
-                    if (o!=null)
-                        break;
-                }
-
-                setCountry((String)(o.readObject()));
-                setBLZ((String)(o.readObject()));
-                setHost((String)(o.readObject()));
-                setPort((Integer)(o.readObject()));
-                setUserId((String)(o.readObject()));
-                setSysId((String)(o.readObject()));
-                setBPD((Properties)(o.readObject()));
-                setUPD((Properties)(o.readObject()));
-
-                setHBCIVersion((String)o.readObject());
-                setCustomerId((String)o.readObject());
-                setFilterType((String)o.readObject());
-                
-                try {
-                    setAllowedTwostepMechanisms((List<String>)o.readObject());
-                    try {
-                        setCurrentTANMethod((String)o.readObject());
-                    } catch (Exception e) {
-                        HBCIUtils.log("no current secmech found in passport file - automatically upgrading to new file format", HBCIUtils.LOG_WARN);
-                        // TODO: remove this
-                        HBCIUtils.log("exception while reading current TAN method was:", HBCIUtils.LOG_DEBUG);
-                        HBCIUtils.log(HBCIUtils.exception2String(e), HBCIUtils.LOG_DEBUG);
-                    }
-                } catch (Exception e) {
-                    HBCIUtils.log("no list of allowed secmechs found in passport file - automatically upgrading to new file format", HBCIUtils.LOG_WARN);
-                    // TODO: remove this
-                    HBCIUtils.log("exception while reading list of allowed two step mechs was:", HBCIUtils.LOG_DEBUG);
-                    HBCIUtils.log(HBCIUtils.exception2String(e), HBCIUtils.LOG_DEBUG);
-                }
-                
-                // TODO: hier auch gewähltes pintan/verfahren lesen
-            } catch (Exception e) {
-                throw new HBCI_Exception("*** loading of passport file failed",e);
-            }
-
-            try {
-                o.close();
-            } catch (Exception e) {
-                HBCIUtils.log(e);
-            }
             
             if (askForMissingData(true,true,true,true,true,true,true))
                 saveChanges();
         }
     }
     
-    /** Gibt den Dateinamen der Schlüsseldatei zurück.
-        @return Dateiname der Schlüsseldatei */
+    /**
+     * Gibt den Dateinamen der Schlüsseldatei zurück.
+     * @return Dateiname der Schlüsseldatei
+     */
     public String getFileName() 
     {
         return filename;
     }
 
+    /**
+     * Speichert den Dateinamen der Passport-Datei.
+     * @param filename
+     */
     public void setFileName(String filename) 
     { 
         this.filename=filename;
     }
     
+    /**
+     * @see org.kapott.hbci.passport.HBCIPassportInternal#resetPassphrase()
+     */
     public void resetPassphrase()
     {
         passportKey=null;
+    }
+    
+    /**
+     * Erzeugt die Passport-Datei wenn noetig.
+     * In eine extra Funktion ausgelagert, damit es von abgeleiteten Klassen ueberschrieben werden kann.
+     */
+    protected void create()
+    {
+        String fname = this.getFileName();
+        if (fname==null) {
+            throw new NullPointerException("client.passport.PinTan.filename must not be null");
+        }
+
+        File file = new File(fname);
+        if (file.exists() && file.isFile() && file.canRead())
+            return;
+        
+        HBCIUtils.log("have to create new passport file",HBCIUtils.LOG_WARN);
+        askForMissingData(true,true,true,true,true,true,true);
+        saveChanges();
+    }
+    
+    /**
+     * Liest die Daten aus der Passport-Datei ein.
+     * In eine extra Funktion ausgelagert, damit es von abgeleiteten Klassen ueberschrieben werden kann.
+     * Zum Beispiel, um eine andere Art der Persistierung zu implementieren.
+     */
+    protected void read()
+    {
+        create();
+        
+        String fname = this.getFileName();
+        if (fname==null) {
+            throw new NullPointerException("client.passport.PinTan.filename must not be null");
+        }
+
+        HBCIUtils.log("loading data from file " + fname,HBCIUtils.LOG_DEBUG);
+
+        ObjectInputStream o = null;
+        try
+        {
+            int retries = Integer.parseInt(HBCIUtils.getParam("client.retries.passphrase","3"));
+            
+            while (true) {
+                if (passportKey == null)
+                    passportKey = calculatePassportKey(FOR_LOAD);
+
+                PBEParameterSpec paramspec=new PBEParameterSpec(CIPHER_SALT,CIPHER_ITERATIONS);
+                Cipher cipher=Cipher.getInstance("PBEWithMD5AndDES");
+                cipher.init(Cipher.DECRYPT_MODE,passportKey,paramspec);
+                
+                o = null;
+                try
+                {
+                    o=new ObjectInputStream(new CipherInputStream(new FileInputStream(fname),cipher));
+                }
+                catch (StreamCorruptedException e)
+                {
+                    passportKey=null;
+                    
+                    retries--;
+                    if (retries<=0)
+                        throw new InvalidPassphraseException();
+                }
+                
+                if (o!=null)
+                    break;
+            }
+
+            setCountry((String)(o.readObject()));
+            setBLZ((String)(o.readObject()));
+            setHost((String)(o.readObject()));
+            setPort((Integer)(o.readObject()));
+            setUserId((String)(o.readObject()));
+            setSysId((String)(o.readObject()));
+            setBPD((Properties)(o.readObject()));
+            setUPD((Properties)(o.readObject()));
+
+            setHBCIVersion((String)o.readObject());
+            setCustomerId((String)o.readObject());
+            setFilterType((String)o.readObject());
+            
+            try {
+                setAllowedTwostepMechanisms((List<String>)o.readObject());
+                try
+                {
+                    setCurrentTANMethod((String)o.readObject());
+                }
+                catch (Exception e)
+                {
+                    HBCIUtils.log("no current secmech found in passport file - automatically upgrading to new file format", HBCIUtils.LOG_WARN);
+                }
+            }
+            catch (Exception e)
+            {
+                HBCIUtils.log("no list of allowed secmechs found in passport file - automatically upgrading to new file format", HBCIUtils.LOG_WARN);
+            }
+        } 
+        catch (Exception e)
+        {
+            throw new HBCI_Exception("*** loading of passport file failed",e);
+        }
+
+        try
+        {
+            o.close();
+        }
+        catch (Exception e)
+        {
+            HBCIUtils.log(e);
+        }
     }
 
     /**
@@ -252,43 +296,7 @@ public class HBCIPassportPinTan
             HBCIUtils.log("closing output stream", HBCIUtils.LOG_DEBUG);
             o.close();
             
-            if (passportfile.exists()) // Nur loeschen, wenn es ueberhaupt existiert
-            {
-                HBCIUtils.log("deleting old passport file " + passportfile, HBCIUtils.LOG_DEBUG);
-                if (!passportfile.delete())
-                    HBCIUtils.log("delete method for " + passportfile + " returned false", HBCIUtils.LOG_ERR);
-            }
-
-            // Wenn die Datei noch existiert, warten wir noch etwas
-            int retry = 0;
-            while (passportfile.exists() && retry++ < 10)
-            {
-                try
-                {
-                    HBCIUtils.log("wait a little bit, maybe another thread (antivirus scanner) is currently locking the file", HBCIUtils.LOG_INFO);
-                    Thread.sleep(1000L);
-                }
-                catch (InterruptedException e)
-                {
-                    HBCIUtils.log("interrupted", HBCIUtils.LOG_WARN);
-                    break;
-                }
-                if (!passportfile.exists())
-                {
-                    HBCIUtils.log("passport file now gone: " + passportfile, HBCIUtils.LOG_INFO);
-                    break;
-                }
-            }
-            
-            // Datei existiert immer noch, dann brauchen wir das Rename gar nicht erst versuchen
-            if (passportfile.exists())
-                throw new HBCI_Exception("could not delete " + passportfile);
-            
-            HBCIUtils.log("renaming " + tempfile.getName() + " to " + passportfile.getName(), HBCIUtils.LOG_DEBUG);
-            if (!tempfile.renameTo(passportfile))
-            {
-                throw new HBCI_Exception("could not rename " + tempfile.getName() + " to " + passportfile.getName());
-            }
+            this.safeReplace(passportfile,tempfile);
         }
         catch (HBCI_Exception he)
         {
@@ -395,30 +403,47 @@ public class HBCIPassportPinTan
                 String challenge=(String)getPersistentData("pintan_challenge");
                 setPersistentData("pintan_challenge",null);
                 
-                // willuhn 2011-05-27 Wir versuchen, den Flickercode zu ermitteln und zu parsen
-                String hhduc = (String) getPersistentData("pintan_challenge_hhd_uc");
-                setPersistentData("pintan_challenge_hhd_uc",null); // gleich wieder aus dem Passport loeschen
-                String flicker = parseFlickercode(challenge,hhduc);
-                
-                if (challenge==null) {
+                if (challenge==null)
+                {
                     // es gibt noch keine challenge
                     HBCIUtils.log("will not sign with a TAN, because there is no challenge",HBCIUtils.LOG_DEBUG);
-                } else {
+                }
+                else
+                {
                     HBCIUtils.log("found challenge in passport, so we ask for a TAN",HBCIUtils.LOG_DEBUG);
-                    // es gibt eine challenge, also damit tan ermitteln
                     
-                    // willuhn 2011-05-27: Flicker-Code uebergeben, falls vorhanden
-                    // bei NEED_PT_SECMECH wird das auch so gemacht.
-                    StringBuffer s = flicker != null ? new StringBuffer(flicker) : new StringBuffer();
-                    HBCIUtilsInternal.getCallback().callback(this,
-                        HBCICallback.NEED_PT_TAN,
-                        secmechInfo.getProperty("name")+"\n"+secmechInfo.getProperty("inputinfo")+"\n\n"+challenge,
-                        HBCICallback.TYPE_TEXT,
-                        s);
-                    if (s.length()==0) {
+                    // willuhn 2011-05-27 Wir versuchen, den Flickercode zu ermitteln und zu parsen
+                    String hhduc = (String) getPersistentData("pintan_challenge_hhd_uc");
+                    setPersistentData("pintan_challenge_hhd_uc",null); // gleich wieder aus dem Passport loeschen
+
+                    HHDVersion hhd = HHDVersion.find(secmechInfo);
+                    HBCIUtils.log("detected HHD version: " + hhd,HBCIUtils.LOG_DEBUG);
+
+                    final StringBuffer payload = new StringBuffer();
+                    final String msg = secmechInfo.getProperty("name")+"\n"+secmechInfo.getProperty("inputinfo")+"\n\n"+challenge;
+                    
+                    if (hhd.getType() == Type.PHOTOTAN)
+                    {
+                        // Bei PhotoTAN haengen wir ungeparst das HHDuc an. Das kann dann auf
+                        // Anwendungsseite per MatrixCode geparst werden
+                        payload.append(hhduc);
+                        HBCIUtilsInternal.getCallback().callback(this,HBCICallback.NEED_PT_PHOTOTAN,msg,HBCICallback.TYPE_TEXT,payload);
+                    }
+                    else
+                    {
+                        // willuhn 2011-05-27: Flicker-Code anhaengen, falls vorhanden
+                        String flicker = parseFlickercode(challenge,hhduc);
+                        if (flicker != null)
+                            payload.append(flicker);
+                        
+                        HBCIUtilsInternal.getCallback().callback(this,HBCICallback.NEED_PT_TAN,msg,HBCICallback.TYPE_TEXT,payload);
+                    }
+
+                    setPersistentData("externalid",null); // External-ID aus Passport entfernen
+                    if (payload == null || payload.length()==0) {
                         throw new HBCI_Exception(HBCIUtilsInternal.getLocMsg("EXCMSG_TANZERO"));
                     }
-                    tan=s.toString();
+                    tan=payload.toString();
                 }
             }
             if (tan.length()!=0) {

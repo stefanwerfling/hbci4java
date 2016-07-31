@@ -138,6 +138,7 @@ public class HBCICallbackIOStreams
                 case NEED_SOFTPIN:
                 case NEED_PT_PIN:
                 case NEED_PT_TAN:
+                case NEED_PT_PHOTOTAN:
                 case NEED_PROXY_PASS:
                     getOutStream().print(msg+": ");
                     getOutStream().flush();
@@ -291,7 +292,29 @@ public class HBCICallbackIOStreams
                     getOutStream().flush();
                     retData.replace(0,retData.length(),getInStream().readLine());
                     break;
-    
+
+                case NEED_PT_TANMEDIA:
+                    String medialist = retData.toString();
+                    if (medialist.length() > 0 && !medialist.contains("|"))
+                    {
+                        // Wenn wir eine Medienbezeichnung gekriegt haben und das
+                        // genau eine einzige ist. Dann uebernehmen wir diese
+                        // ohne Rueckfrage.
+                        retData.replace(0,retData.length(),medialist);
+                    }
+                    else
+                    {
+                        // Ansonsten fragen wir den User
+                        String[] medias=medialist.split("\\|");
+                        for (String media:medias) {
+                            getOutStream().println(media);
+                        }
+                        getOutStream().print(HBCIUtilsInternal.getLocMsg("CALLB_SELECT_ENTRY")+": ");
+                        getOutStream().flush();
+                        retData.replace(0,retData.length(),getInStream().readLine());
+                    }
+                    break;
+
                 case NEED_INFOPOINT_ACK:
                     getOutStream().println(msg);
                     getOutStream().println(retData);
